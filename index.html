@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StartUpNV Valuation Calculator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; }
+    @keyframes field-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.5); }
+      50% { box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.15); }
+      100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    }
+    .field-highlight input { animation: field-pulse 0.8s ease-out 2; border-radius: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useMemo, useRef, useEffect, useLayoutEffect } = React;
+
+    // ==================== ICONS (inline SVGs) ====================
+    const IconInfo = ({ size = 12 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+      </svg>
+    );
+    const IconReset = ({ size = 12 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+      </svg>
+    );
+    const IconChevronDown = ({ size = 14 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m6 9 6 6 6-6"/>
+      </svg>
+    );
+    const IconChevronUp = ({ size = 14 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m18 15-6-6-6 6"/>
+      </svg>
+    );
+    const IconCalculator = ({ size = 13 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/>
+      </svg>
+    );
+    const IconTarget = ({ size = 13 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+      </svg>
+    );
+
+    // ==================== CONSTANTS ====================
+    const DEFAULTS = {
+      investmentAmount: 100000, returnMultiple: 50, salesMultiple: 4,
+      valuation: 2000000, optionPool: 12.5, aRound: 20, bRound: 20,
+      cRound: 0, otherRounds: 0, tam: 5.25, tamUnit: "billion",
+      sam: 2.33, samUnit: "billion", targetExit: 100000000,
+    };
+
+    const MULTIPLES = [10, 20, 30, 40, 50];
+    const SALES_HINTS = "SaaS: 5-15x \u00b7 Hardware: 1-3x \u00b7 Marketplace: 3-8x \u00b7 Biotech: 8-20x";
+
+    // ==================== FORMATTING ====================
+    const fmtNum = (n) => {
+      if (n == null || isNaN(n)) return "";
+      return Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+    };
+
+    const fmtCompact = (n) => {
+      if (!n || isNaN(n) || n === 0) return "$0";
+      const abs = Math.abs(n);
+      if (abs >= 1e12) return "$" + (n / 1e12).toFixed(1) + "T";
+      if (abs >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B";
+      if (abs >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+      if (abs >= 1e3) return "$" + (n / 1e3).toFixed(0) + "K";
+      return "$" + n.toFixed(0);
+    };
+
+    const fmtResult = (n) => {
+      if (!n || isNaN(n) || n === 0) return "$0";
+      const abs = Math.abs(n);
+      if (abs >= 1e12) return "$" + (n / 1e12).toFixed(1) + "T";
+      if (abs >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B";
+      if (abs >= 100e6) return "$" + Math.round(n / 1e6) + "M";
+      if (abs >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+      if (abs >= 1e3) return "$" + fmtNum(Math.round(n / 1e3)) + "K";
+      return "$" + fmtNum(Math.round(n));
+    };
+
+    const fmtPct = (n, dec = 2) => {
+      if (n == null || isNaN(n)) return "\u2014";
+      return (n * 100).toFixed(dec) + "%";
+    };
+
+    const unitMul = (u) => (u === "billion" ? 1e9 : u === "million" ? 1e6 : 1);
+
+    // ==================== MATH ENGINE ====================
+    function calcForward(s) {
+      const inv = s.investmentAmount;
+      const val = s.valuation;
+      if (!inv || !val || val === 0) return null;
+      const ownership = inv / val;
+      const remaining = (1 - s.optionPool / 100) * (1 - s.aRound / 100) * (1 - s.bRound / 100) * (1 - s.cRound / 100) * (1 - s.otherRounds / 100);
+      const ownershipAtExit = ownership * remaining;
+      const requiredReturn = inv * s.returnMultiple;
+      const requiredExit = ownershipAtExit > 0 ? requiredReturn / ownershipAtExit : 0;
+      const requiredSales = s.salesMultiple > 0 ? requiredExit / s.salesMultiple : 0;
+      const tamVal = s.tam * unitMul(s.tamUnit);
+      const samVal = s.sam * unitMul(s.samUnit);
+      const pctTam = tamVal > 0 ? requiredSales / tamVal : 0;
+      const pctSam = samVal > 0 ? requiredSales / samVal : 0;
+      return { ownership, ownershipAtExit, requiredReturn, requiredExit, requiredSales, pctTam, pctSam };
+    }
+
+    function calcReverse(s) {
+      const inv = s.investmentAmount;
+      const exit = s.targetExit;
+      if (!inv || !exit || exit === 0) return null;
+      const remaining = (1 - s.optionPool / 100) * (1 - s.aRound / 100) * (1 - s.bRound / 100) * (1 - s.cRound / 100) * (1 - s.otherRounds / 100);
+      const requiredReturn = inv * s.returnMultiple;
+      const ownershipAtExit = exit > 0 ? requiredReturn / exit : 0;
+      const impliedOwnership = remaining > 0 ? ownershipAtExit / remaining : 0;
+      const maxValuation = impliedOwnership > 0 ? inv / impliedOwnership : 0;
+      const requiredSales = s.salesMultiple > 0 ? exit / s.salesMultiple : 0;
+      const tamVal = s.tam * unitMul(s.tamUnit);
+      const samVal = s.sam * unitMul(s.samUnit);
+      const pctTam = tamVal > 0 ? requiredSales / tamVal : 0;
+      const pctSam = samVal > 0 ? requiredSales / samVal : 0;
+      return { maxValuation, impliedOwnership, ownershipAtExit, requiredReturn, requiredSales, pctTam, pctSam };
+    }
+
+    function calcDilution(s) {
+      const remaining = (1 - s.optionPool / 100) * (1 - s.aRound / 100) * (1 - s.bRound / 100) * (1 - s.cRound / 100) * (1 - s.otherRounds / 100);
+      return { expected: 1 - remaining, remaining };
+    }
+
+    function getReality(forward, reverse, mode, s) {
+      const exitVal = mode === "forward" ? forward?.requiredExit : s.targetExit;
+      const samPct = mode === "forward" ? forward?.pctSam : reverse?.pctSam;
+      const salesVal = mode === "forward" ? forward?.requiredSales : reverse?.requiredSales;
+      if (!exitVal && !samPct) return { worst: "green", summary: "", exitA: null, samA: null, exitVal: 0, salesVal: 0, samPct: 0, hint: "" };
+
+      let exitA = { level: "\u2014", color: "green" };
+      if (exitVal < 50e6) exitA = { level: "Modest M&A", color: "green" };
+      else if (exitVal < 200e6) exitA = { level: "Solid Venture Outcome", color: "green" };
+      else if (exitVal < 500e6) exitA = { level: "Large Exit", color: "amber" };
+      else if (exitVal < 1e9) exitA = { level: "Very Large Exit", color: "orange" };
+      else exitA = { level: "Unicorn Territory", color: "red" };
+
+      let samA = { level: "\u2014", color: "green" };
+      if (samPct != null) {
+        if (samPct < 0.02) samA = { level: "Achievable", color: "green" };
+        else if (samPct < 0.05) samA = { level: "Ambitious", color: "amber" };
+        else if (samPct < 0.1) samA = { level: "Very Aggressive", color: "orange" };
+        else samA = { level: "Unrealistic", color: "red" };
+      }
+
+      const colorOrder = { green: 0, amber: 1, orange: 2, red: 3 };
+      const worst = colorOrder[exitA.color] >= colorOrder[samA.color] ? exitA.color : samA.color;
+
+      let summary = "";
+      if (mode === "forward") {
+        summary = "This scenario requires " + fmtResult(salesVal) + " in annual revenue and a " + fmtResult(exitVal) + " exit.";
+      } else {
+        summary = "At a " + fmtResult(s.targetExit) + " exit, you can offer up to " + fmtResult(reverse?.maxValuation) + " valuation cap.";
+      }
+
+      const hint = (worst === "orange" || worst === "red") ? "Try reducing the return multiple or increasing your SAM estimate." : "";
+
+      return { worst, summary, exitA, samA, exitVal, salesVal, samPct, hint };
+    }
+
+    // ==================== COMPONENTS ====================
+    function Tip({ text }) {
+      const [open, setOpen] = useState(false);
+      const ref = useRef(null);
+      const tooltipRef = useRef(null);
+
+      useEffect(() => {
+        if (!open) return;
+        const handler = (e) => {
+          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        document.addEventListener("touchstart", handler);
+        return () => {
+          document.removeEventListener("mousedown", handler);
+          document.removeEventListener("touchstart", handler);
+        };
+      }, [open]);
+
+      useLayoutEffect(() => {
+        if (!open || !tooltipRef.current) return;
+        const tip = tooltipRef.current;
+        tip.style.left = "50%";
+        tip.style.transform = "translateX(-50%)";
+        const rect = tip.getBoundingClientRect();
+        const pad = 16;
+        if (rect.left < pad) {
+          tip.style.left = (pad - rect.left + rect.width / 2) + "px";
+          tip.style.transform = "translateX(-50%)";
+        } else if (rect.right > window.innerWidth - pad) {
+          tip.style.left = (window.innerWidth - pad - rect.right + rect.width / 2) + "px";
+          tip.style.transform = "translateX(-50%)";
+        }
+      }, [open]);
+
+      return (
+        <span className="relative ml-1" ref={ref}>
+          <button onClick={() => setOpen(!open)} className="p-1.5 -m-1 text-slate-400 hover:text-slate-600 transition-colors">
+            <IconInfo size={12} />
+          </button>
+          {open && (
+            <div ref={tooltipRef} className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 max-w-[calc(100vw-2rem)] p-2.5 text-xs text-slate-600 bg-white border border-slate-200 rounded-lg shadow-lg leading-relaxed">
+              {text}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-white border-r border-b border-slate-200 transform rotate-45" />
+            </div>
+          )}
+        </span>
+      );
+    }
+
+    function SectionCard({ title, children, className = "", collapsible = false, defaultOpen = true, summary = "" }) {
+      const [open, setOpen] = useState(defaultOpen);
+      return (
+        <div className={`bg-white rounded-xl border border-slate-200/80 shadow-sm ${className}`}>
+          {title && (
+            <div
+              className={`flex items-center justify-between px-4 pt-3 pb-2 ${collapsible ? "cursor-pointer select-none hover:bg-slate-50/50 rounded-t-xl transition-colors" : ""}`}
+              onClick={collapsible ? () => setOpen(!open) : undefined}
+            >
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">{title}</h3>
+              {collapsible && (
+                <div className="flex items-center gap-2">
+                  {!open && summary && <span className="text-xs text-slate-400 font-medium">{summary}</span>}
+                  {open ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                </div>
+              )}
+            </div>
+          )}
+          {(!collapsible || open) && <div className="px-4 pb-4">{children}</div>}
+        </div>
+      );
+    }
+
+    function CurrencyInput({ label, value, onChange, tip, className = "" }) {
+      const [focused, setFocused] = useState(false);
+      const [raw, setRaw] = useState("");
+      const [rejected, setRejected] = useState(false);
+      const rejectTimer = useRef(null);
+      useEffect(() => { if (!focused) setRaw(fmtNum(value)); }, [value, focused]);
+      const flashReject = () => {
+        setRejected(true);
+        clearTimeout(rejectTimer.current);
+        rejectTimer.current = setTimeout(() => setRejected(false), 1000);
+      };
+      return (
+        <div className={className}>
+          <label className="flex items-center text-xs font-medium text-slate-600 mb-1">
+            {label}{tip && <Tip text={tip} />}
+          </label>
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">$</span>
+            <input
+              type="text" inputMode="numeric"
+              value={focused ? raw : fmtNum(value)}
+              onFocus={(e) => {
+                setFocused(true); setRaw(String(value)); setRejected(false);
+                const input = e.target;
+                requestAnimationFrame(() => { const len = input.value.length; input.setSelectionRange(len, len); });
+              }}
+              onBlur={() => {
+                setFocused(false);
+                const v = parseFloat(raw.replace(/,/g, ""));
+                if (!isNaN(v) && v > 0) onChange(v); else if (raw !== String(value) && raw !== fmtNum(value)) flashReject();
+              }}
+              onChange={(e) => {
+                const stripped = e.target.value.replace(/[^0-9.]/g, "").split(".")[0];
+                setRaw(stripped);
+                const v = parseFloat(stripped.replace(/,/g, ""));
+                if (!isNaN(v) && v > 0) onChange(v);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+              className={"w-full pl-7 pr-3 py-2.5 text-sm bg-white border rounded-lg focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 outline-none transition-all text-slate-800 " + (rejected ? "border-red-400 ring-2 ring-red-400/30" : "border-slate-200")}
+            />
+          </div>
+          {rejected && <p className="text-[11px] text-red-500 mt-0.5">Please enter a valid amount</p>}
+        </div>
+      );
+    }
+
+    function PctInput({ label, value, onChange, tip, className = "" }) {
+      const [focused, setFocused] = useState(false);
+      const [raw, setRaw] = useState(String(value));
+      const [rejected, setRejected] = useState(false);
+      const rejectTimer = useRef(null);
+      useEffect(() => { if (!focused) setRaw(String(value)); }, [value, focused]);
+      const flashReject = () => {
+        setRejected(true);
+        clearTimeout(rejectTimer.current);
+        rejectTimer.current = setTimeout(() => setRejected(false), 1000);
+      };
+      return (
+        <div className={className}>
+          <label className="flex items-center text-xs font-medium text-slate-600 mb-1">
+            {label}{tip && <Tip text={tip} />}
+          </label>
+          <div className="relative">
+            <input
+              type="text" inputMode="decimal"
+              value={focused ? raw : value}
+              onFocus={() => { setFocused(true); setRaw(String(value)); setRejected(false); }}
+              onBlur={() => {
+                setFocused(false);
+                const v = parseFloat(raw);
+                if (!isNaN(v) && v >= 0 && v <= 100) onChange(v); else if (raw !== String(value)) flashReject();
+              }}
+              onChange={(e) => {
+                const stripped = e.target.value.replace(/[^0-9.]/g, "");
+                setRaw(stripped);
+                const v = parseFloat(stripped);
+                if (!isNaN(v) && v >= 0 && v <= 100) onChange(v);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+              className={"w-full pl-3 pr-7 py-2.5 text-sm bg-white border rounded-lg focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 outline-none transition-all text-slate-800 " + (rejected ? "border-red-400 ring-2 ring-red-400/30" : "border-slate-200")}
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+          </div>
+          {rejected && <p className="text-[11px] text-red-500 mt-0.5">Enter a value between 0 and 100</p>}
+        </div>
+      );
+    }
+
+    function NumInput({ label, value, onChange, tip, className = "" }) {
+      const [focused, setFocused] = useState(false);
+      const [raw, setRaw] = useState(String(value));
+      const [rejected, setRejected] = useState(false);
+      const rejectTimer = useRef(null);
+      useEffect(() => { if (!focused) setRaw(String(value)); }, [value, focused]);
+      const flashReject = () => {
+        setRejected(true);
+        clearTimeout(rejectTimer.current);
+        rejectTimer.current = setTimeout(() => setRejected(false), 1000);
+      };
+      return (
+        <div className={className}>
+          <label className="flex items-center text-xs font-medium text-slate-600 mb-1">
+            {label}{tip && <Tip text={tip} />}
+          </label>
+          <div className="relative">
+            <input
+              type="text" inputMode="decimal"
+              value={focused ? raw : value}
+              onFocus={() => { setFocused(true); setRaw(String(value)); setRejected(false); }}
+              onBlur={() => {
+                setFocused(false);
+                const v = parseFloat(raw);
+                if (!isNaN(v) && v > 0) onChange(v); else if (raw !== String(value)) flashReject();
+              }}
+              onChange={(e) => {
+                const stripped = e.target.value.replace(/[^0-9.]/g, "");
+                setRaw(stripped);
+                const v = parseFloat(stripped);
+                if (!isNaN(v) && v > 0) onChange(v);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+              className={"w-full px-3 py-2.5 text-sm bg-white border rounded-lg focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 outline-none transition-all text-slate-800 " + (rejected ? "border-red-400 ring-2 ring-red-400/30" : "border-slate-200")}
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium">x</span>
+          </div>
+          {rejected && <p className="text-[11px] text-red-500 mt-0.5">Please enter a valid number</p>}
+        </div>
+      );
+    }
+
+    function MarketInput({ label, value, unit, onChange, onUnitChange, tip, className = "" }) {
+      const [focused, setFocused] = useState(false);
+      const [raw, setRaw] = useState(String(value));
+      const [rejected, setRejected] = useState(false);
+      const rejectTimer = useRef(null);
+      useEffect(() => { if (!focused) setRaw(String(value)); }, [value, focused]);
+      const flashReject = () => {
+        setRejected(true);
+        clearTimeout(rejectTimer.current);
+        rejectTimer.current = setTimeout(() => setRejected(false), 1000);
+      };
+      return (
+        <div className={className}>
+          <label className="flex items-center text-xs font-medium text-slate-600 mb-1">
+            {label}{tip && <Tip text={tip} />}
+          </label>
+          <div className="flex items-center gap-0">
+            <div className="relative flex-1">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">$</span>
+              <input
+                type="text" inputMode="decimal"
+                value={focused ? raw : value}
+                onFocus={() => { setFocused(true); setRaw(String(value)); setRejected(false); }}
+                onBlur={() => {
+                  setFocused(false);
+                  const v = parseFloat(raw);
+                  if (!isNaN(v) && v > 0) onChange(v); else if (raw !== String(value)) flashReject();
+                }}
+                onChange={(e) => {
+                  const stripped = e.target.value.replace(/[^0-9.]/g, "");
+                  setRaw(stripped);
+                  const v = parseFloat(stripped);
+                  if (!isNaN(v) && v > 0) onChange(v);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                className={"w-full pl-7 pr-2 py-2.5 text-sm bg-white border rounded-l-lg focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 outline-none transition-all text-slate-800 " + (rejected ? "border-red-400 ring-2 ring-red-400/30" : "border-slate-200")}
+              />
+            </div>
+            <div className="flex border border-l-0 border-slate-200 rounded-r-lg overflow-hidden">
+              {["million", "billion"].map((u) => (
+                <button
+                  key={u}
+                  onClick={() => onUnitChange(u)}
+                  className={"min-w-[44px] min-h-[44px] px-3.5 py-2.5 text-xs font-semibold transition-all " + (
+                    unit === u
+                      ? "bg-slate-800 text-white"
+                      : "bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {u === "million" ? "M" : "B"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {rejected && <p className="text-[11px] text-red-500 mt-0.5">Please enter a valid amount</p>}
+        </div>
+      );
+    }
+
+    function Badge({ level, color }) {
+      const styles = {
+        green: "bg-emerald-100 text-emerald-700",
+        amber: "bg-yellow-100 text-yellow-700",
+        orange: "bg-orange-100 text-orange-700",
+        red: "bg-red-100 text-red-700",
+      };
+      return (
+        <span className={"text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap " + (styles[color] || styles.green)}>
+          {level}
+        </span>
+      );
+    }
+
+    function MetricRow({ label, value, badge, tip, border = true, indent = false, large = false }) {
+      return (
+        <div className={"flex items-center justify-between py-2.5 " + (border ? "border-b border-slate-100 " : "") + (indent ? "pl-3 border-l border-slate-200" : "")}>
+          <span className="text-xs text-slate-500 flex items-center flex-shrink-0">
+            {label}{tip && <Tip text={tip} />}
+          </span>
+          <div className="flex-1 mx-3 min-w-[2rem] border-b border-dotted border-slate-200 self-end mb-1" />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {badge && <Badge level={badge.level} color={badge.color} />}
+            <span className={large ? "text-base font-bold text-slate-800" : "text-sm font-semibold text-slate-800"}>{value}</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ==================== DILUTION WATERFALL ====================
+    function DilutionWaterfall({ steps, initialOwnership }) {
+      if (!steps || steps.length < 2 || !initialOwnership || initialOwnership <= 0) return null;
+
+      const waterfallSteps = steps.map((step) => ({
+        label: step.label,
+        ownership: initialOwnership * step.pct,
+      }));
+
+      const maxOwnership = waterfallSteps[0].ownership;
+      const finalOwnership = waterfallSteps[waterfallSteps.length - 1].ownership;
+      const totalLost = maxOwnership - finalOwnership;
+
+      return (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Investor Position Through Future Rounds
+            </span>
+          </div>
+
+          <div className="space-y-1.5">
+            {waterfallSteps.map((step, i) => {
+              const barWidth = maxOwnership > 0 ? (step.ownership / maxOwnership) * 100 : 0;
+              const prevOwnership = i > 0 ? waterfallSteps[i - 1].ownership : null;
+              const lost = prevOwnership != null ? prevOwnership - step.ownership : 0;
+              const isFirst = i === 0;
+              const isLast = i === waterfallSteps.length - 1;
+
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-16 flex-shrink-0 text-right">
+                    <span className={"text-xs " + (isFirst || isLast ? "font-semibold text-slate-700" : "font-medium text-slate-500")}>
+                      {step.label}
+                    </span>
+                  </div>
+
+                  <div className="flex-1 relative h-5">
+                    <div className="absolute inset-0 bg-slate-50 rounded" />
+                    <div
+                      className={"absolute left-0 top-0 h-full rounded transition-all duration-500 " + (
+                        isFirst ? "bg-sky-500" : isLast ? "bg-sky-700" : "bg-sky-400"
+                      )}
+                      style={{ width: barWidth + "%" }}
+                    />
+                    {lost > 0 && (
+                      <div
+                        className="absolute top-0 h-full rounded-r bg-red-200/70 transition-all duration-500"
+                        style={{
+                          left: barWidth + "%",
+                          width: ((lost / maxOwnership) * 100) + "%",
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="w-14 flex-shrink-0 text-right">
+                    <span className={"text-xs tabular-nums " + (isFirst || isLast ? "font-bold text-slate-800" : "font-semibold text-slate-600")}>
+                      {(step.ownership * 100).toFixed(2) + "%"}
+                    </span>
+                  </div>
+
+                  <div className="w-12 flex-shrink-0 text-right">
+                    {lost > 0 ? (
+                      <span className="text-[11px] text-red-400 font-medium tabular-nums">
+                        {"-" + (lost * 100).toFixed(1) + "%"}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-300">{"\u2014"}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+            <span className="text-xs text-slate-500">
+              {"Position reduced by "}
+              <span className="font-semibold text-slate-700">
+                {maxOwnership > 0 ? ((totalLost / maxOwnership) * 100).toFixed(0) : 0}%
+              </span>
+              {" through dilution"}
+            </span>
+            <span className="text-xs font-semibold text-slate-700">
+              {(maxOwnership * 100).toFixed(1) + "% \u2192 " + (finalOwnership * 100).toFixed(2) + "%"}
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // ==================== MAIN COMPONENT ====================
+    function ValuationCalculator() {
+      const [s, setS] = useState(DEFAULTS);
+      const [mode, setMode] = useState("forward");
+      const [dilutionOpen, setDilutionOpen] = useState(() => window.innerWidth >= 1024);
+      const [showMobileBar, setShowMobileBar] = useState(false);
+      const [confirmReset, setConfirmReset] = useState(false);
+      const [customMultiple, setCustomMultiple] = useState(false);
+      const [fieldHighlight, setFieldHighlight] = useState(false);
+      const prevModeRef = useRef(mode);
+      const resetTimerRef = useRef(null);
+      const resultsRef = useRef(null);
+
+      const set = (key) => (val) => setS((prev) => ({ ...prev, [key]: val }));
+
+      const setUnitWithConversion = (valueKey, unitKey) => (newUnit) => {
+        setS((prev) => {
+          if (prev[unitKey] === newUnit) return prev;
+          let newValue = prev[valueKey];
+          if (prev[unitKey] === "million" && newUnit === "billion") newValue = newValue / 1000;
+          else if (prev[unitKey] === "billion" && newUnit === "million") newValue = newValue * 1000;
+          return { ...prev, [unitKey]: newUnit, [valueKey]: parseFloat(newValue.toPrecision(6)) };
+        });
+      };
+
+      useEffect(() => {
+        if (prevModeRef.current !== mode) {
+          prevModeRef.current = mode;
+          setFieldHighlight(true);
+          const t = setTimeout(() => setFieldHighlight(false), 1600);
+          return () => clearTimeout(t);
+        }
+      }, [mode]);
+
+      const dilution = useMemo(() => calcDilution(s), [s]);
+      const forward = useMemo(() => mode === "forward" ? calcForward(s) : null, [s, mode]);
+      const reverse = useMemo(() => mode === "reverse" ? calcReverse(s) : null, [s, mode]);
+      const reality = useMemo(() => getReality(forward, reverse, mode, s), [forward, reverse, mode, s]);
+
+      const dilutionSteps = useMemo(() => {
+        let pos = 1;
+        const steps = [{ label: "Today", pct: pos }];
+        if (s.optionPool > 0) { pos *= (1 - s.optionPool / 100); steps.push({ label: "Options", pct: pos }); }
+        if (s.aRound > 0) { pos *= (1 - s.aRound / 100); steps.push({ label: "Series A", pct: pos }); }
+        if (s.bRound > 0) { pos *= (1 - s.bRound / 100); steps.push({ label: "Series B", pct: pos }); }
+        if (s.cRound > 0) { pos *= (1 - s.cRound / 100); steps.push({ label: "Series C", pct: pos }); }
+        if (s.otherRounds > 0) { pos *= (1 - s.otherRounds / 100); steps.push({ label: "Other", pct: pos }); }
+        return steps;
+      }, [s]);
+
+      const initialOwnership = useMemo(() => {
+        if (mode === "forward") {
+          return s.valuation > 0 ? s.investmentAmount / s.valuation : 0;
+        } else {
+          return reverse?.impliedOwnership || 0;
+        }
+      }, [s, mode, reverse]);
+
+      useEffect(() => {
+        const el = resultsRef.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(
+          ([entry]) => setShowMobileBar(!entry.isIntersecting),
+          { threshold: 0.1 }
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+      }, []);
+
+      const realityBg = { green: "bg-emerald-50/50 border-emerald-200/50", amber: "bg-yellow-50/50 border-yellow-200/50", orange: "bg-orange-50/50 border-orange-200/50", red: "bg-red-50/50 border-red-200/50" };
+      const realityDot = { green: "bg-emerald-500", amber: "bg-yellow-500", orange: "bg-orange-500", red: "bg-red-500" };
+      const realityText = { green: "text-emerald-600", amber: "text-yellow-600", orange: "text-orange-600", red: "text-red-600" };
+
+      const modeButtons = [
+        { key: "forward", label: "How Investors See It", Icon: IconCalculator },
+        { key: "reverse", label: "Set Your Terms", Icon: IconTarget },
+      ];
+
+      return (
+        <div style={{ fontFamily: "'Outfit', sans-serif" }} className="min-h-screen bg-gradient-to-br from-[#F8F7F4] to-[#F0EFEB]">
+          <div className="max-w-6xl mx-auto px-4 py-8">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 style={{ fontFamily: "'Playfair Display', serif" }} className="text-2xl font-extrabold text-slate-800 tracking-tight">
+                  Valuation Calculator
+                </h1>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {mode === "forward"
+                    ? "Enter your deal terms to see what exit investors need"
+                    : "Set a target exit to find the max valuation you can offer"}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (confirmReset) {
+                    clearTimeout(resetTimerRef.current);
+                    setS(DEFAULTS); setMode("forward"); setConfirmReset(false); setCustomMultiple(false);
+                  } else {
+                    setConfirmReset(true);
+                    resetTimerRef.current = setTimeout(() => setConfirmReset(false), 2500);
+                  }
+                }}
+                className={"flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all " +
+                  (confirmReset
+                    ? "bg-red-50 text-red-600 border border-red-300 hover:bg-red-100"
+                    : "text-slate-500 hover:text-slate-700 border border-slate-200 hover:bg-white")}
+              >
+                <IconReset size={12} /> {confirmReset ? "Reset all?" : "Reset"}
+              </button>
+            </div>
+
+            {/* Mode Toggle */}
+            <div className="flex bg-white rounded-xl border border-slate-200/80 shadow-sm p-1 mb-4 max-w-lg">
+              {modeButtons.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setMode(tab.key)}
+                  className={"flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all active:scale-[0.98] " +
+                    (mode === tab.key
+                      ? "bg-slate-900 text-white shadow-md"
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-50")}
+                >
+                  <tab.Icon size={13} />
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Two Column Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* ===== LEFT: INPUTS ===== */}
+              <div className="lg:col-span-7 space-y-4">
+                {/* Deal Terms */}
+                <SectionCard title="Deal Terms">
+                  {mode === "reverse" && (
+                    <p className="text-xs text-slate-500 -mt-1 mb-3 flex items-center gap-1.5">
+                      <span className="text-sky-500"><IconTarget size={12} /></span>
+                      Set your <span className="font-semibold text-slate-700">Target Exit</span> — everything else stays the same.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+                    <CurrencyInput
+                      label="Investment Amount"
+                      value={s.investmentAmount}
+                      onChange={set("investmentAmount")}
+                      tip="Total capital the investor is putting in this round."
+                    />
+                    <div className={fieldHighlight ? "field-highlight" : ""}>
+                      {mode === "forward" ? (
+                        <CurrencyInput
+                          label="Valuation / Cap"
+                          value={s.valuation}
+                          onChange={set("valuation")}
+                          tip="Post-money valuation or SAFE valuation cap."
+                        />
+                      ) : (
+                        <CurrencyInput
+                          label="Target Exit"
+                          value={s.targetExit}
+                          onChange={set("targetExit")}
+                          tip="What's a realistic acquisition or IPO value for your company?"
+                        />
+                      )}
+                    </div>
+                    <NumInput
+                      label="Sales Multiple"
+                      value={s.salesMultiple}
+                      onChange={set("salesMultiple")}
+                      tip={SALES_HINTS}
+                    />
+                  </div>
+                  {mode === "forward" && s.investmentAmount > s.valuation && (
+                    <p className="text-xs text-red-500 font-medium mt-1">Investment exceeds valuation — this implies &gt;100% ownership. Double-check your inputs.</p>
+                  )}
+
+                  {/* Return Multiple Selector */}
+                  <div>
+                    <label className="flex items-center text-xs font-medium text-slate-600 mb-1.5">
+                      Required Return Multiple
+                      <Tip text="What return does the investor need? Higher multiples = earlier stage, higher risk." />
+                    </label>
+                    <div className="flex gap-1.5">
+                      {MULTIPLES.map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => { set("returnMultiple")(m); setCustomMultiple(false); }}
+                          className={"flex-1 py-2 rounded-lg border-2 text-sm font-bold transition-all active:scale-[0.97] " +
+                            (!customMultiple && s.returnMultiple === m
+                              ? "border-slate-800 bg-slate-900 text-white shadow-md"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")}
+                        >
+                          {m}x
+                        </button>
+                      ))}
+                      {!customMultiple ? (
+                        <button
+                          onClick={() => setCustomMultiple(true)}
+                          className="flex-1 py-2 rounded-lg border-2 border-dashed border-slate-300 text-sm font-bold transition-all active:scale-[0.97] bg-white text-slate-400 hover:border-slate-400 hover:text-slate-600"
+                        >
+                          Custom
+                        </button>
+                      ) : (
+                        <div className="flex-1 relative">
+                          <input
+                            type="text" inputMode="decimal" autoFocus
+                            defaultValue={MULTIPLES.includes(s.returnMultiple) ? "" : s.returnMultiple}
+                            placeholder="e.g. 15"
+                            onBlur={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (!isNaN(v) && v > 0) set("returnMultiple")(v); else setCustomMultiple(false);
+                            }}
+                            onChange={(e) => {
+                              const stripped = e.target.value.replace(/[^0-9.]/g, "");
+                              e.target.value = stripped;
+                              const v = parseFloat(stripped);
+                              if (!isNaN(v) && v > 0) set("returnMultiple")(v);
+                            }}
+                            onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setCustomMultiple(false); }}
+                            className="w-full h-full py-2 px-2 rounded-lg border-2 border-sky-400 text-sm font-bold text-center bg-white text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20"
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium pointer-events-none">x</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1.5 relative">
+                      <div className="h-1 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-400 opacity-60" />
+                      <div className="flex justify-between mt-0.5">
+                        <span className="text-[10px] font-medium text-slate-500">Later Stage</span>
+                        <span className="text-[10px] font-medium text-slate-500">Pre-Seed</span>
+                      </div>
+                    </div>
+                  </div>
+                </SectionCard>
+
+                {/* Dilution Assumptions */}
+                <SectionCard
+                  title="Dilution Assumptions"
+                  collapsible
+                  defaultOpen={dilutionOpen}
+                  summary={"Total: " + fmtPct(dilution.expected, 0) + (dilution.expected > 0.70 ? " \u26a0" : "")}
+                >
+                  <p className="text-xs text-slate-500 -mt-1 mb-3">Model how future fundraising rounds will dilute early investors.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+                    <PctInput label="Option Pool" value={s.optionPool} onChange={set("optionPool")} tip="Equity reserved for employee stock options. Typical: 10-15%." />
+                    <PctInput label="Series A" value={s.aRound} onChange={set("aRound")} tip="Dilution from Series A round. Typical: 15-25%." />
+                    <PctInput label="Series B" value={s.bRound} onChange={set("bRound")} tip="Dilution from Series B round. Typical: 15-20%." />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <PctInput label="Series C" value={s.cRound} onChange={set("cRound")} tip="Dilution from Series C round. Typical: 10-15%." />
+                    <PctInput label="Other Rounds" value={s.otherRounds} onChange={set("otherRounds")} tip="Any additional dilution from later rounds." />
+                    <div />
+                  </div>
+
+                  {/* Dilution Waterfall */}
+                  <DilutionWaterfall steps={dilutionSteps} initialOwnership={initialOwnership} />
+                  {dilution.expected > 0.70 && (
+                    <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-xs text-amber-700 font-medium">
+                        Total projected dilution is {(dilution.expected * 100).toFixed(0)}%. This is unusually high and may leave too little equity for early investors. Consider reducing some round sizes.
+                      </p>
+                    </div>
+                  )}
+                </SectionCard>
+
+                {/* Market Size */}
+                <SectionCard title="Market Size">
+                  <div className="grid grid-cols-2 gap-3 max-w-md">
+                    <MarketInput
+                      label="TAM"
+                      value={s.tam}
+                      unit={s.tamUnit}
+                      onChange={set("tam")}
+                      onUnitChange={setUnitWithConversion("tam", "tamUnit")}
+                      tip="Total Addressable Market — the total revenue opportunity if you captured 100% of your market."
+                    />
+                    <MarketInput
+                      label="SAM"
+                      value={s.sam}
+                      unit={s.samUnit}
+                      onChange={set("sam")}
+                      onUnitChange={setUnitWithConversion("sam", "samUnit")}
+                      tip="Serviceable Addressable Market — the portion of TAM you can realistically target with your product and go-to-market."
+                    />
+                  </div>
+                </SectionCard>
+              </div>
+
+              {/* ===== RIGHT: OUTPUTS ===== */}
+              <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-8 lg:self-start">
+                {/* Results */}
+                <div ref={resultsRef} className="bg-gradient-to-b from-white to-slate-50/80 rounded-xl border border-slate-200/80 shadow-md p-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                    Deal Analysis
+                  </h3>
+
+                  {/* Hero Metric */}
+                  <div className="mb-4">
+                    <div className="text-xs font-medium text-slate-600 mb-0.5">
+                      {mode === "forward" ? "Required Exit" : "Max Valuation Cap"}
+                    </div>
+                    <div className="flex items-baseline gap-2 transition-all duration-300">
+                      <span style={{ fontFamily: "'Playfair Display', serif" }} className="text-3xl font-extrabold text-slate-800">
+                        {mode === "forward"
+                          ? fmtResult(forward?.requiredExit)
+                          : fmtResult(reverse?.maxValuation)}
+                      </span>
+                      {mode === "forward" && reality.exitA && <Badge level={reality.exitA.level} color={reality.exitA.color} />}
+                    </div>
+                    {mode === "reverse" && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs text-slate-500">For a {fmtResult(s.targetExit)} exit</span>
+                        {reality.exitA && <Badge level={reality.exitA.level} color={reality.exitA.color} />}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Metric Rows */}
+                  <div>
+                    {mode === "forward" ? (
+                      <>
+                        <MetricRow
+                          label="Initial Ownership"
+                          value={fmtPct(forward?.ownership, 2)}
+                          large={true}
+                          tip="Investor's ownership stake immediately after investing, before any dilution."
+                        />
+                        <MetricRow
+                          label="Ownership at Exit"
+                          value={fmtPct(forward?.ownershipAtExit, 2)}
+                          large={true}
+                          tip="Investor's ownership after all projected dilution rounds."
+                        />
+                        <MetricRow
+                          label="Required Return"
+                          value={fmtResult(forward?.requiredReturn)}
+                          large={true}
+                          tip="Total cash the investor needs back: investment times their target multiple."
+                        />
+                        <MetricRow
+                          label="Revenue at Exit"
+                          value={fmtResult(forward?.requiredSales)}
+                          tip="Annual revenue needed at exit, based on the industry sales multiple."
+                        />
+                        <div className="pt-1 pb-0.5">
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400">Market Share Required</span>
+                        </div>
+                        <MetricRow
+                          label="% of TAM"
+                          value={fmtPct(forward?.pctTam)}
+                          indent={true}
+                          tip="Share of Total Addressable Market the company must capture in annual revenue. Lower is more achievable."
+                        />
+                        <MetricRow
+                          label="% of SAM"
+                          value={fmtPct(forward?.pctSam)}
+                          badge={reality.samA}
+                          indent={true}
+                          border={false}
+                          tip="Share of Serviceable Addressable Market required. Below 2% is generally achievable."
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <MetricRow
+                          label="Initial Ownership"
+                          value={fmtPct(reverse?.impliedOwnership, 2)}
+                          large={true}
+                          tip="The ownership stake the investor needs at the time of investment."
+                        />
+                        <MetricRow
+                          label="Required Ownership"
+                          value={fmtPct(reverse?.ownershipAtExit, 2)}
+                          large={true}
+                          tip="The ownership stake the investor needs at exit to hit their target return."
+                        />
+                        <MetricRow
+                          label="Required Return"
+                          value={fmtResult(reverse?.requiredReturn)}
+                          large={true}
+                          tip="Total cash the investor needs back: investment times their target multiple."
+                        />
+                        <MetricRow
+                          label="Revenue at Exit"
+                          value={fmtResult(reverse?.requiredSales)}
+                          tip="Annual revenue needed at exit, based on the industry sales multiple."
+                        />
+                        <div className="pt-1 pb-0.5">
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400">Market Share Required</span>
+                        </div>
+                        <MetricRow
+                          label="% of TAM"
+                          value={fmtPct(reverse?.pctTam)}
+                          indent={true}
+                          tip="Share of Total Addressable Market the company must capture in annual revenue. Lower is more achievable."
+                        />
+                        <MetricRow
+                          label="% of SAM"
+                          value={fmtPct(reverse?.pctSam)}
+                          badge={reality.samA}
+                          indent={true}
+                          border={false}
+                          tip="Share of Serviceable Addressable Market required. Below 2% is generally achievable."
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reality Check */}
+                <div className={"rounded-xl border p-4 " + realityBg[reality.worst]}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className={"w-2 h-2 rounded-full " + realityDot[reality.worst]} />
+                    <h3 className="text-sm font-bold text-slate-700">Reality Check</h3>
+                    <span className={"text-xs font-semibold ml-auto " + realityText[reality.worst]}>
+                      {reality.worst === "green" ? "Looks Reasonable" :
+                       reality.worst === "amber" ? "Ambitious" :
+                       reality.worst === "orange" ? "Aggressive" : "Significant Concerns"}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between py-1.5 border-b border-current/10">
+                      <span className="text-xs text-slate-600">Exit Difficulty</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-700">{fmtResult(reality.exitVal)}</span>
+                        {reality.exitA && <Badge level={reality.exitA.level} color={reality.exitA.color} />}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5">
+                      <span className="text-xs text-slate-600">Market Capture</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-700">{reality.samPct != null ? fmtPct(reality.samPct) + " of SAM" : "\u2014"}</span>
+                        {reality.samA && <Badge level={reality.samA.level} color={reality.samA.color} />}
+                      </div>
+                    </div>
+                  </div>
+                  {reality.summary && (
+                    <p className="text-xs leading-relaxed text-slate-600 mt-3 pt-2 border-t border-current/10">{reality.summary}</p>
+                  )}
+                  {reality.hint && (
+                    <p className="text-xs leading-relaxed text-slate-500 mt-1 italic">{reality.hint}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="text-center py-5 mt-4">
+              <p className="text-[10px] text-slate-400 font-medium tracking-wider uppercase">StartUpNV 2017-2026. All rights reserved. | Privacy Policy</p>
+            </div>
+          </div>
+
+          {/* Mobile Sticky Summary Bar */}
+          {showMobileBar && (
+            <div
+              className="fixed bottom-0 left-0 right-0 lg:hidden z-50 bg-white/95 backdrop-blur-sm border-t border-slate-200 shadow-lg px-4 py-3 cursor-pointer active:bg-slate-50 transition-colors"
+              onClick={() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            >
+              <div className="flex items-center justify-between max-w-6xl mx-auto">
+                <div>
+                  <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+                    {mode === "forward" ? "Required Exit" : "Max Valuation Cap"}
+                  </div>
+                  <div className="text-lg font-extrabold text-slate-800" style={{ fontFamily: "'Playfair Display', serif" }}>
+                    {mode === "forward"
+                      ? fmtResult(forward?.requiredExit)
+                      : fmtResult(reverse?.maxValuation)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={"w-2.5 h-2.5 rounded-full " + realityDot[reality.worst]} />
+                  <span className={"text-xs font-semibold " + realityText[reality.worst]}>
+                    {reality.worst === "green" ? "Reasonable" :
+                     reality.worst === "amber" ? "Ambitious" :
+                     reality.worst === "orange" ? "Aggressive" : "Concerns"}
+                  </span>
+                  <IconChevronUp size={14} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<ValuationCalculator />);
+  </script>
+</body>
+</html>
