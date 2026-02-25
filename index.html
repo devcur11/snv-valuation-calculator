@@ -428,13 +428,14 @@
                 <button
                   key={u}
                   onClick={() => onUnitChange(u)}
-                  className={"min-h-[44px] px-3 py-2.5 text-xs font-semibold transition-all " + (
+                  className={"min-h-[44px] px-2 sm:px-3 py-2.5 text-[11px] sm:text-xs font-semibold transition-all whitespace-nowrap " + (
                     unit === u
                       ? "bg-slate-800 text-white"
                       : "bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50"
                   )}
                 >
-                  {u === "million" ? "Million" : "Billion"}
+                  <span className="sm:hidden">{u === "million" ? "Mil" : "Bil"}</span>
+                  <span className="hidden sm:inline">{u === "million" ? "Million" : "Billion"}</span>
                 </button>
               ))}
             </div>
