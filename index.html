@@ -177,9 +177,7 @@
         summary = "At a " + fmtResult(s.targetExit) + " exit, you can offer up to " + fmtResult(reverse?.maxValuation) + " valuation cap.";
       }
 
-      const hint = (worst === "orange" || worst === "red") ? "Try reducing the return multiple or increasing your SAM estimate." : "";
-
-      return { worst, summary, exitA, samA, exitVal, salesVal, samPct, hint };
+      return { worst, summary, exitA, samA, exitVal, salesVal, samPct };
     }
 
     // ==================== COMPONENTS ====================
@@ -891,7 +889,7 @@
                   {dilution.expected > 0.70 && (
                     <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
                       <p className="text-xs text-amber-700 font-medium">
-                        Total projected dilution is {(dilution.expected * 100).toFixed(0)}%. This is unusually high and may leave too little equity for early investors. Consider reducing some round sizes.
+                        Total projected dilution is {(dilution.expected * 100).toFixed(0)}%. At this level, the initial investor's position is reduced by more than 70%, which most VCs would consider unusually high.
                       </p>
                     </div>
                   )}
@@ -1055,9 +1053,6 @@
                   <RealityRows reality={reality} />
                   {reality.summary && (
                     <p className="text-xs leading-relaxed text-slate-600 mt-3 pt-2 border-t border-current/10">{reality.summary}</p>
-                  )}
-                  {reality.hint && (
-                    <p className="text-xs leading-relaxed text-slate-500 mt-1 italic">{reality.hint}</p>
                   )}
                 </div>
               </div>
