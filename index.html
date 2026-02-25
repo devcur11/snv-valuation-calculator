@@ -69,7 +69,7 @@
       sam: 2.33, samUnit: "billion", targetExit: 100000000,
     };
 
-    const MULTIPLES = [10, 20, 30, 40, 50];
+    const MULTIPLES = [50, 40, 30, 20, 10];
     const SALES_HINTS = "SaaS: 5-15x \u00b7 Hardware: 1-3x \u00b7 Marketplace: 3-8x \u00b7 Biotech: 8-20x";
 
     // ==================== FORMATTING ====================
@@ -428,13 +428,13 @@
                 <button
                   key={u}
                   onClick={() => onUnitChange(u)}
-                  className={"min-w-[44px] min-h-[44px] px-3.5 py-2.5 text-xs font-semibold transition-all " + (
+                  className={"min-h-[44px] px-3 py-2.5 text-xs font-semibold transition-all " + (
                     unit === u
                       ? "bg-slate-800 text-white"
                       : "bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50"
                   )}
                 >
-                  {u === "million" ? "M" : "B"}
+                  {u === "million" ? "Million" : "Billion"}
                 </button>
               ))}
             </div>
@@ -855,10 +855,10 @@
                       )}
                     </div>
                     <div className="mt-1.5 relative">
-                      <div className="h-1 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-400 opacity-60" />
+                      <div className="h-1 rounded-full bg-gradient-to-r from-red-400 via-amber-400 to-emerald-400 opacity-60" />
                       <div className="flex justify-between mt-0.5">
-                        <span className="text-[10px] font-medium text-slate-500">Later Stage</span>
                         <span className="text-[10px] font-medium text-slate-500">Pre-Seed</span>
+                        <span className="text-[10px] font-medium text-slate-500">Later Stage</span>
                       </div>
                     </div>
                   </div>
